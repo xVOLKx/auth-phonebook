@@ -17,10 +17,7 @@
    ```bash
    node server.js
    ```
-5. Запусти сервер:
-   ```bash
-http://localhost:3000
-   ```  
+5. Открой в браузере: http://localhost:3000
 ## Функции
 
  - Регистрация и вход (JWT)
