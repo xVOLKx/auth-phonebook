@@ -1,42 +1,35 @@
-# JWT авторизация на Node.js
+# Телефонная книга с авторизацией (JWT + Express + SQLite)
 
-Простой сервер с регистрацией, логином и защищённым маршрутом (JWT, bcrypt, SQLite).
+Веб-приложение, где пользователи могут регистрироваться, входить в систему и управлять своими контактами (CRUD).
 
 ## Как 🚀 запустить
 
 1. Установи [Node.js](https://nodejs.org/)
 2. Склонируй репозиторий:
    ```bash
-   git clone https://github.com/xVOLKx/jwt-auth.git
+   git clone https://github.com/xVOLKx/auth-phonebook.git
    ```
-3. Перейди в папку проекта:
-   ```bash
-   cd jwt-auth
-   ```
-4. Установи зависимости:
+3. Установи зависимости:
    ```bash
    npm install
    ```
-5. Запусти:
+4. Запусти:
    ```bash
    node server.js
    ```
-6. Используй curl или Postman для теста:
+5. Запусти сервер:
    ```bash
-   · Регистрация: POST /register (username, password)
-   · Логин: POST /login (получить токен)
-   · Профиль: GET /profile (защищён маршрут)
+http://localhost:3000
    ```  
-## Результат
+## Функции
 
- - При успешной регистрации сервер отвечает: User registered
- - При логине выдаётся JWT-токен (строка вида `eyJhbGciOiJ...`)
- - Защищённый маршрут /profile доступен только с токеном и возвращает Hello, username. This is your profile.
+ - Регистрация и вход (JWT)
+ - Просмотр, добавление, удаление контактов
+ - Каждый пользователь видит только свои контакты
 
 ## 🛠️ Технологии
 
-- Node.js
-- Express
-- JWT (jsonwebtoken)
-- bcryptjs
+- Node.js, Express
 - SQLite
+- JWT, bcrypt
+- HTML, CSS
