@@ -1,58 +1,69 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 const path = require('path');
 
 const app = express();
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use(express.static('public'));
 
-const db = new sqlite3.Database(path.join(__dirname, 'app.db'));
-
-// Таблица пользователей
-db.run(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE,
-    password TEXT
-)`);
-
-// Таблица контактов (привязана к пользователю)
-db.run(`CREATE TABLE IF NOT EXISTS contacts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    name TEXT,
-    phone TEXT,
-    email TEXT,
-    FOREIGN KEY(user_id) REFERENCES users(id)
-)`);
+const pool = new Pool({
+    user: 'postgres',
+    host: 'localhost',
+    database: 'auth_phonebook_db',
+    password: '8899',   
+    port: 5432,
+});
 
 const SECRET_KEY = 'supersecretkey';
 
-// ------------------- Регистрация -------------------
-app.post('/register', (req, res) => {
+// Асинхронное создание таблиц
+const initDb = async () => {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username TEXT UNIQUE,
+            password TEXT
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS contacts (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id),
+            name TEXT,
+            phone TEXT,
+            email TEXT
+        )
+    `);
+    console.log('Tables created');
+};
+
+// API маршруты
+app.post('/register', async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).send('Username and password required');
     const hashed = bcrypt.hashSync(password, 8);
-    db.run(`INSERT INTO users (username, password) VALUES (?, ?)`, [username, hashed], (err) => {
-        if (err) return res.status(400).send('User already exists');
+    try {
+        await pool.query('INSERT INTO users (username, password) VALUES ($1, $2)', [username, hashed]);
         res.send('User registered');
-    });
+    } catch (err) {
+        res.status(400).send('User already exists');
+    }
 });
 
-// ------------------- Логин (выдаём JWT) -------------------
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
     const { username, password } = req.body;
-    db.get(`SELECT * FROM users WHERE username = ?`, [username], (err, user) => {
-        if (err || !user) return res.status(401).send('Invalid credentials');
-        const valid = bcrypt.compareSync(password, user.password);
-        if (!valid) return res.status(401).send('Invalid credentials');
-        const token = jwt.sign({ id: user.id, username: user.username }, SECRET_KEY, { expiresIn: '1h' });
-        res.json({ token });
-    });
+    const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    const user = result.rows[0];
+    if (!user) return res.status(401).send('Invalid credentials');
+    const valid = bcrypt.compareSync(password, user.password);
+    if (!valid) return res.status(401).send('Invalid credentials');
+    const token = jwt.sign({ id: user.id, username: user.username }, SECRET_KEY, { expiresIn: '1h' });
+    res.json({ token });
 });
 
-// Middleware для проверки JWT
 function authenticateToken(req, res, next) {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).send('No token provided');
@@ -64,210 +75,43 @@ function authenticateToken(req, res, next) {
     });
 }
 
-// ------------------- Контакты (только для авторизованных) -------------------
-app.get('/contacts', authenticateToken, (req, res) => {
-    db.all(`SELECT * FROM contacts WHERE user_id = ?`, [req.user.id], (err, rows) => {
-        if (err) return res.status(500).send('Database error');
-        res.json(rows);
-    });
+app.get('/contacts', authenticateToken, async (req, res) => {
+    const result = await pool.query('SELECT * FROM contacts WHERE user_id = $1', [req.user.id]);
+    res.json(result.rows);
 });
 
-app.post('/contacts', authenticateToken, (req, res) => {
+app.post('/contacts', authenticateToken, async (req, res) => {
     const { name, phone, email } = req.body;
-    db.run(`INSERT INTO contacts (user_id, name, phone, email) VALUES (?, ?, ?, ?)`,
-        [req.user.id, name, phone, email],
-        function(err) {
-            if (err) return res.status(500).send('Error adding contact');
-            res.json({ id: this.lastID });
-        });
+    const result = await pool.query(
+        'INSERT INTO contacts (user_id, name, phone, email) VALUES ($1, $2, $3, $4) RETURNING id',
+        [req.user.id, name, phone, email]
+    );
+    res.json({ id: result.rows[0].id });
 });
 
-app.put('/contacts/:id', authenticateToken, (req, res) => {
+app.put('/contacts/:id', authenticateToken, async (req, res) => {
     const { name, phone, email } = req.body;
-    db.run(`UPDATE contacts SET name = ?, phone = ?, email = ? WHERE id = ? AND user_id = ?`,
-        [name, phone, email, req.params.id, req.user.id],
-        function(err) {
-            if (err || this.changes === 0) return res.status(404).send('Contact not found');
-            res.send('Contact updated');
-        });
+    const result = await pool.query(
+        'UPDATE contacts SET name = $1, phone = $2, email = $3 WHERE id = $4 AND user_id = $5',
+        [name, phone, email, req.params.id, req.user.id]
+    );
+    if (result.rowCount === 0) return res.status(404).send('Contact not found');
+    res.send('Contact updated');
 });
 
-app.delete('/contacts/:id', authenticateToken, (req, res) => {
-    db.run(`DELETE FROM contacts WHERE id = ? AND user_id = ?`, [req.params.id, req.user.id], function(err) {
-        if (err || this.changes === 0) return res.status(404).send('Contact not found');
-        res.send('Contact deleted');
-    });
+app.delete('/contacts/:id', authenticateToken, async (req, res) => {
+    const result = await pool.query('DELETE FROM contacts WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+    if (result.rowCount === 0) return res.status(404).send('Contact not found');
+    res.send('Contact deleted');
 });
 
-// ------------------- HTML СТРАНИЦЫ (фронтенд) -------------------
-app.get('/register-page', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <title>Регистрация</title>
-            <style>body { font-family: Arial; max-width: 400px; margin: 50px auto; padding: 20px; }
-                input, button { display: block; width: 100%; margin: 10px 0; padding: 10px; }
-                button { background: #007bff; color: white; border: none; cursor: pointer; }
-                .error { color: red; }
-            </style>
-        </head>
-        <body>
-            <h2>Регистрация</h2>
-            <form id="registerForm">
-                <input type="text" id="username" placeholder="Логин" required>
-                <input type="password" id="password" placeholder="Пароль" required>
-                <button type="submit">Зарегистрироваться</button>
-                <div id="message"></div>
-            </form>
-            <p>Уже есть аккаунт? <a href="/login-page">Войти</a></p>
-            <script>
-                document.getElementById('registerForm').onsubmit = async (e) => {
-                    e.preventDefault();
-                    const username = document.getElementById('username').value;
-                    const password = document.getElementById('password').value;
-                    const res = await fetch('/register', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: new URLSearchParams({ username, password })
-                    });
-                    const text = await res.text();
-                    document.getElementById('message').innerHTML = text;
-                };
-            </script>
-        </body>
-        </html>
-    `);
-});
-
-app.get('/login-page', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <title>Вход</title>
-            <style>
-                body { font-family: Arial; max-width: 400px; margin: 50px auto; padding: 20px; }
-                input, button { display: block; width: 100%; margin: 10px 0; padding: 10px; }
-                button { background: #28a745; color: white; border: none; cursor: pointer; }
-                .error { color: red; }
-            </style>
-        </head>
-        <body>
-            <h2>Вход</h2>
-            <form id="loginForm">
-                <input type="text" id="username" placeholder="Логин" required>
-                <input type="password" id="password" placeholder="Пароль" required>
-                <button type="submit">Войти</button>
-                <div id="message"></div>
-            </form>
-            <p>Нет аккаунта? <a href="/register-page">Зарегистрироваться</a></p>
-            <script>
-                document.getElementById('loginForm').onsubmit = async (e) => {
-                    e.preventDefault();
-                    const username = document.getElementById('username').value;
-                    const password = document.getElementById('password').value;
-                    const res = await fetch('/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: new URLSearchParams({ username, password })
-                    });
-                    const data = await res.json();
-                    if (data.token) {
-                        localStorage.setItem('token', data.token);
-                        window.location.href = '/contacts-page';
-                    } else {
-                        document.getElementById('message').innerHTML = 'Ошибка входа';
-                    }
-                };
-            </script>
-        </body>
-        </html>
-    `);
-});
-
-app.get('/contacts-page', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <title>Контакты</title>
-            <style>
-                body { font-family: Arial; max-width: 800px; margin: 20px auto; padding: 20px; }
-                table { width: 100%; border-collapse: collapse; }
-                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }th { background: #f2f2f2; }
-                .add-form { margin-bottom: 20px; }
-                input, button { padding: 8px; margin: 5px; }
-                .error { color: red; }
-            </style>
-        </head>
-        <body>
-            <h2>Мои контакты</h2>
-            <div class="add-form">
-                <input type="text" id="name" placeholder="Имя">
-                <input type="text" id="phone" placeholder="Телефон">
-                <input type="text" id="email" placeholder="Email">
-                <button onclick="addContact()">Добавить</button>
-            </div>
-            <table id="contactsTable">
-                <thead>
-                    <tr><th>ID</th><th>Имя</th><th>Телефон</th><th>Email</th><th>Действия</th></tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-            <p><a href="/login-page">Выйти</a></p>
-            <script>
-                const token = localStorage.getItem('token');
-                if (!token) window.location.href = '/login-page';
-
-                async function loadContacts() {
-                    const res = await fetch('/contacts', { headers: { 'Authorization': 'Bearer ' + token } });
-                    const contacts = await res.json();
-                    const tbody = document.querySelector('#contactsTable tbody');
-                    tbody.innerHTML = '';
-                    contacts.forEach(c => {
-                        const row = tbody.insertRow();
-                        row.insertCell(0).innerText = c.id;
-                        row.insertCell(1).innerText = c.name;
-                        row.insertCell(2).innerText = c.phone;
-                        row.insertCell(3).innerText = c.email;
-                        const actions = row.insertCell(4);
-                        actions.innerHTML = '<button onclick="deleteContact(' + c.id + ')">Удалить</button>';
-                    });
-                }
-
-                async function addContact() {
-                    const name = document.getElementById('name').value;
-                    const phone = document.getElementById('phone').value;
-                    const email = document.getElementById('email').value;
-                    await fetch('/contacts', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': 'Bearer ' + token },
-                        body: new URLSearchParams({ name, phone, email })
-                    });
-                    loadContacts();
-                }
-
-                async function deleteContact(id) {
-                    await fetch('/contacts/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
-                    loadContacts();
-                }
-
-                loadContacts();
-            </script>
-        </body>
-        </html>
-    `);
-});
-
-// Редирект с корня на страницу логина
 app.get('/', (req, res) => {
-    res.redirect('/login-page');
+    res.redirect('/login.html');
 });
 
-// Запуск сервера
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Auth + Contacts app running on port ${port}`));
+
+// Запускаем сервер после создания таблиц
+initDb().then(() => {
+    app.listen(port, () => console.log(`Auth + Contacts app running on port ${port}`));
+}).catch(err => console.error(err));
