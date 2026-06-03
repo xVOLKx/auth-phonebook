@@ -1,32 +1,46 @@
-# Телефонная книга с авторизацией (JWT + Express + SQLite)
+# Телефонная книга с авторизацией (JWT + Express + PostgreSQL)
 
-Веб-приложение, где пользователи могут регистрироваться, входить в систему и управлять своими контактами (CRUD).
+Веб-приложение, где пользователи могут регистрироваться, входить в систему и управлять своими контактами (CRUD). База данных — PostgreSQL.
 
-## Как 🚀 запустить
+## Живая версия
+
+👉 [https://auth-phonebook.onrender.com](https://auth-phonebook.onrender.com)
+
+(Ничего устанавливать не нужно — просто открой ссылку)
+
+## Как 🚀 запустить локально (для разработки)
 
 1. Установи [Node.js](https://nodejs.org/)
-2. Склонируй репозиторий:
+2. Установи [PostgreSQL](https://www.postgresql.org/download/windows/)
+3. Создай базу данных auth_phonebook_db (через pgAdmin или командой `createdb auth_phonebook_db`)
+4. Склонируй репозиторий:
    ```bash
    git clone https://github.com/xVOLKx/auth-phonebook.git
    ```
-3. Установи зависимости:
+5. Перейди в папку проекта:
    ```bash
-   npm install
+   cd auth-phonebook
    ```
-4. Запусти:
+6. Установи зависимости:
+   ```bash
+    npm install
+   ```
+7. Укажи пароль от PostgreSQL в файле server.js (строка password: '1234')
+8. Запусти сервер:
    ```bash
    node server.js
    ```
-5. Открой в браузере: http://localhost:3000
-## Функции
+9. Открой в браузере: http://localhost:3000
 
- - Регистрация и вход (JWT)
- - Просмотр, добавление, удаление контактов
- - Каждый пользователь видит только свои контакты
+Функции
 
-## 🛠️ Технологии
+. Регистрация и вход (JWT)
+· Просмотр, добавление, удаление контактов
+· Каждый пользователь видит только свои контакты
 
-- Node.js, Express
-- SQLite
-- JWT, bcrypt
-- HTML, CSS
+🛠️ Технологии
+
+· Node.js, Express
+· PostgreSQL
+· JWT, bcrypt
+· HTML, CSS
