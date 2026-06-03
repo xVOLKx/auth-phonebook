@@ -9,12 +9,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static('public'));
 
+const { Pool } = require('pg');
+
+// Подключение к PostgreSQL через переменную окружения (для Render)
 const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'auth_phonebook_db',
-    password: '8899',   
-    port: 5432,
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
 });
 
 const SECRET_KEY = 'supersecretkey';
