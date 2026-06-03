@@ -9,8 +9,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static('public'));
 
-const { Pool } = require('pg');
-
 // Подключение к PostgreSQL через переменную окружения (для Render)
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
